@@ -1,0 +1,522 @@
+import toodegrees/forex_factory_utility/16 as ffUtil
+import toodegrees/forex_factory_decoding/38 as ffDec
+
+//@version=5
+indicator("Zen Lab ALL-IN-ONE", overlay=true, max_bars_back=500, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+//==============================================================================
+// TIMEZONES 
+//==============================================================================
+tz_incr      = input.int(-5, "UTC Adjustment (+/-)", group="Time Zone", display=display.none)
+use_exchange = input(false, "Use Chart Time Zone", group="Time Zone", display=display.none)
+
+//==============================================================================
+// ZEN LAB CHECKLIST
+//==============================================================================
+show_checklist = input.bool(true, "Show Checklist", group="Checklist")
+
+check1 = input.bool(true, "HTF Support & Resistance", group="Checklist Settings", display=display.none)
+check2 = input.bool(true, "HTF Trend", group="Checklist Settings", display=display.none)
+check3 = input.bool(true, "5 Min Trend Line", group="Checklist Settings", display=display.none)
+check4 = input.bool(true, "Breakout Entry", group="Checklist Settings", display=display.none)
+check5 = input.bool(true, "Previous Session High/Low", group="Checklist Settings", display=display.none)
+check6 = input.bool(true, "Moving Average", group="Checklist Settings", display=display.none)
+
+chk_bgcolor     = input.color(color.white, "Background Color", group="Checklist Settings", display=display.none)
+chk_textcolor   = input.color(color.rgb(0, 0, 0), "Text Color", group="Checklist Settings", display=display.none)
+chk_header_bg   = input.color(color.green, "Header/Footer Background", group="Checklist Settings", display=display.none)
+chk_header_text = input.color(color.white, "Header/Footer Text Color", group="Checklist Settings", display=display.none)
+chk_font_size   = input.string("Normal", "Font Size", options=["Tiny","Small","Normal","Large","Huge"], group="Checklist Settings", display=display.none)
+position_input = input.string("Middle Right", "Checklist Table Position",
+     options=["Top Left","Top Center","Top Right","Middle Left","Middle Center","Middle Right","Bottom Left","Bottom Center","Bottom Right"],
+     group="Checklist Settings", display=display.none)
+
+// Hidden Labels (no UI exposure)
+label1 = "HTF Support & Resistance"
+label2 = "HTF Trend"
+label3 = "5 Min Trend Line"
+label4 = "Breakout Entry"
+label5 = "Previous Session High/Low"
+label6 = "Moving Average"
+
+// Helpers (no ternary chains)
+get_text_size_chk(s) =>
+    txtSize = size.normal
+    if s == "Tiny"
+        txtSize := size.tiny
+    else if s == "Small"
+        txtSize := size.small
+    else if s == "Normal"
+        txtSize := size.normal
+    else if s == "Large"
+        txtSize := size.large
+    else if s == "Huge"
+        txtSize := size.huge
+    txtSize
+
+get_position_chk(str) =>
+    p = position.middle_right
+    if str == "Top Left"
+        p := position.top_left
+    else if str == "Top Center"
+        p := position.top_center
+    else if str == "Top Right"
+        p := position.top_right
+    else if str == "Middle Left"
+        p := position.middle_left
+    else if str == "Middle Center"
+        p := position.middle_center
+    else if str == "Middle Right"
+        p := position.middle_right
+    else if str == "Bottom Left"
+        p := position.bottom_left
+    else if str == "Bottom Center"
+        p := position.bottom_center
+    else if str == "Bottom Right"
+        p := position.bottom_right
+    p
+
+pos_chk   = get_position_chk(position_input)
+tSize_chk = get_text_size_chk(chk_font_size)
+
+checkmark = "✅"
+empty     = "❌"
+percentPerCheck = 16.66
+totalChecked = (check1 ? 1 : 0) + (check2 ? 1 : 0) + (check3 ? 1 : 0) + (check4 ? 1 : 0) + (check5 ? 1 : 0) + (check6 ? 1 : 0)
+percentage  = math.min(math.round(totalChecked * percentPerCheck), 100)
+
+var table checklist = table.new(pos_chk, 2, 8)
+
+//==============================================================================
+// SESSIONS + ATR SETTINGS
+//==============================================================================
+// --- Add minutes to session END ---
+f_extendSession(_ses, _addMin) =>
+    parts     = str.split(_ses, "-")
+    startStr  = array.get(parts, 0)
+    endStr    = array.get(parts, 1)
+
+    endHour   = str.tonumber(str.substring(endStr, 0, 2))
+    endMin    = str.tonumber(str.substring(endStr, 2, 4))
+
+    totalMin  = endHour * 60 + endMin + _addMin
+    newHour   = math.floor(totalMin / 60) % 24
+    newMin    = totalMin % 60
+
+    endNewStr = str.format("{0,number,00}{1,number,00}", newHour, newMin)
+    startStr + "-" + endNewStr
+
+// Session A
+show_sesa  = input(true,  "", inline="sesa", group="Sessions", display=display.none)
+sesa_txt   = input("New York", "", inline="sesa", group="Sessions", display=display.none)
+sesa_ses_raw = input.session("0930-1100", "", inline="sesa", group="Sessions", display=display.none)
+sesa_ses     = f_extendSession(sesa_ses_raw, 5)
+sesa_css   = input.color(#808080, "", inline="sesa", group="Sessions", display=display.none)
+
+// Session B
+show_sesb  = input(true,  "", inline="sesb", group="Sessions", display=display.none)
+sesb_txt   = input("London", "", inline="sesb", group="Sessions", display=display.none)
+sesb_ses_raw = input.session("0300-0600", "", inline="sesb", group="Sessions", display=display.none)
+sesb_ses     = f_extendSession(sesb_ses_raw, 5)
+sesb_css   = input.color(#808080, "", inline="sesb", group="Sessions", display=display.none)
+
+// Session C
+show_sesc  = input(true,  "", inline="sesc", group="Sessions", display=display.none)
+sesc_txt   = input("Asian", "", inline="sesc", group="Sessions", display=display.none)
+sesc_ses_raw = input.session("1800-2100", "", inline="sesc", group="Sessions", display=display.none)
+sesc_ses     = f_extendSession(sesc_ses_raw, 5)
+sesc_css   = input.color(#808080, "", inline="sesc", group="Sessions", display=display.none)
+
+// Session box options
+bg_transp    = input.float(90, "Session Background Transparency", group="Session Settings", display=display.none)
+show_outline = input(false, "Session Outline", group="Session Settings", display=display.none)
+show_txt     = input(true, "Session Label", group="Session Settings", display=display.none)
+
+// ATR Settings
+marketType = input.string(title="Market Type", defval="Indices", options=["Indices", "Forex Pairs", "Metals"], group="ATR Settings", display=display.none)
+atrlength  = input.int(title="ATR Length", defval=20, minval=1, group="ATR Settings", display=display.none)
+tf_input   = input.timeframe(title="Timeframe for ATR", defval="5", group="ATR Settings", display=display.none)
+
+// Hidden settings
+atrsmoothing = "EMA"
+tpMultiplier = 1.0
+slMultiplier = 1.5
+prevATR = true
+normATR = true
+
+positionOption       = input.string("Top Right", "ATR Table Position", options=["Top Right","Middle Right","Bottom Right"], group="ATR Settings", display=display.none)
+textColor            = input.color(color.white, "ATR Text Color", group="ATR Settings", display=display.none)
+tableBackgroundColor = input.color(color.green, "ATR Table Background Color", group="ATR Settings", display=display.none)
+textSizeOption       = input.string("Normal", "ATR Text Size", options=["Tiny","Small","Normal","Large","Huge"], group="ATR Settings", display=display.none)
+
+// EMA Settings
+emaLength = 13
+emaColor  = input.color(color.rgb(207, 205, 205), "EMA 13 Color", group="EMA Settings", display=display.none)
+emaWidth  = input.int(1, "EMA 13 Thickness", minval=1, maxval=5, group="EMA Settings", display=display.none)
+
+//==============================================================================
+// ZENDEGREES (ForexFactory)
+//==============================================================================
+
+//#region[Timeframe Limitations]
+if timeframe.in_seconds(timeframe.period)>86400
+    runtime.error("Go to the Daily Timeframe or lower!")
+else if timeframe.in_seconds(timeframe.period)<30
+    runtime.error("Go to the 30-Second Timeframe or higher!")
+//#endregion
+
+//#region[Global, Functions, Methods]
+var mdnCheck = false
+if hour(time,"America/New_York")==0 and hour(time[1],"America/New_York")!=0 and not mdnCheck
+    mdnCheck := true
+newDay = mdnCheck ? hour(time,"America/New_York")==0 and hour(time[1],"America/New_York")!=0 : timeframe.change("D")
+
+requestData() =>
+    [request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_1",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume)),
+     request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_2",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume)),
+     request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_3",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume)),
+     request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_4",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume)),
+     request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_5",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume)),
+     request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_6",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume)),
+     request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_7",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume)),
+     request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_8",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume)),
+     request.seed("seed_toodegrees_toogit","TOODEGREES_FOREX_FACTORY_SLOT_9",str.tostring(open)+","+str.tostring(high)+","+str.tostring(low)+","+str.tostring(close)+","+str.tostring(volume))]
+
+method processData(ffUtil.News[] N, string S1, string S2, string S3, string S4, string S5, string S6, string S7, string S8, string S9) =>
+    ffDec.readNews(N,S1), ffDec.readNews(N,S2), ffDec.readNews(N,S3)
+    ffDec.readNews(N,S4), ffDec.readNews(N,S5), ffDec.readNews(N,S6)
+    ffDec.readNews(N,S7), ffDec.readNews(N,S8), ffDec.readNews(N,S9)
+//#endregion
+
+//#region[Tooltips]
+var expectedImpactTT  = "Select which news will show on your charts."
+var NTSetting         = "Select the viewable range of Holidays and High Impact News for the TABLE."
+var autoTT            = "Select the viewable range of Holidays and High Impact News for the CHART."
+var onChartTT         = "'Today'\nAll historical news will be deleted once a new day starts, only the current day's news "
+                      + "will be shown on chart.\n\n'This Week'\nAll historical news will be deleted once a new week "
+                      + "starts, only the current week's news will be shown on chart.\n\n'Manual'\nWill show the current "
+                      + "week's upcoming news as well as the news in the prior custom number of days (includes weekend days)."
+var labelYTT          = "This reminder will appear as colored dot on the chart. Reminder dot can also have outline."
+var sizeTTT           = "Depending on the Size of the News Table, you will see more or less new events from Forex Factory "
+var tableHeadCTT      = "Text Color - Background Color"
+var tableRowCTT       = "Past News Text Color - Future News Text Color - Background Color"
+//#endregion
+
+//#region[User Input]
+// NOTE: Using Zen Lab UTC offset (tz_incr). No custom timezone inputs here.
+int timezone_h = tz_incr
+int timezone_m = 0
+
+// Expected Impact (HIDE med_impact + low_impact)
+var high_impact = true ,tooltip=expectedImpactTT
+var holiday     = true
+var med_impact  = false
+var low_impact  = false
+
+// Currency Selection (removed from UI)
+var AUTO = true
+var AUD  = false
+var CAD  = false
+var CHF  = false
+var CNY  = false
+var EUR  = false
+var GBP  = false
+var JPY  = false
+var NZD  = false
+var USD  = false
+
+// On Chart (HIDE onChartLB)
+var onChartT   = input.string("This Week", title="Impact News On Chart          ", group="Impact News On Chart", inline="1", tooltip=autoTT, options=["Today", "This Week", "Manual"])
+var onChartLB  = 30
+
+var showLabels = input.bool(true , title="News Reminder"          , group="Impact News On Chart", inline="2")
+var labelS     = ffUtil.size(input.string("Normal", title=""     , group="Impact News On Chart", inline="2", options=["Tiny","Small","Normal","Large","Huge"]))
+var labelY     = input.string("Below", title=""                 , group="Impact News On Chart", inline="2", options=["Above","Below"], tooltip=labelYTT)
+var lblOutLn   = input.bool(true , title="Outline"              , group="Impact News On Chart", inline="2")
+var showLines  = input.bool(true , title="Lines  "         , group="Impact News On Chart", inline="3")
+var lineTime   = input.string("Future", title=""                , group="Impact News On Chart", inline="3", options=["Future","Past+Future"])
+var lineT      = ffUtil.lineTrnsp(input.string("Heavy", title=""   , group="Impact News On Chart", inline="3", options=["Light","Medium","Heavy"]))
+var lineS      = ffUtil.lineStyle(input.string("Solid", title=""   , group="Impact News On Chart", inline="3", options=["Dashed","Dotted","Solid"]))
+
+// Table (HIDE borderAuto)
+var showTable   = input.bool(true       , title="Impact News On Table"        , group="Impact News Table Settings", inline="1")
+var tableType   = input.string("This Week", title=""           , group="Impact News Table Settings", inline="1", options=["Today","This Week"])
+var todType     = input.string("AM/PM"      , title=""           , group="Impact News Table Settings", inline="1", options=["24H","AM/PM"], tooltip=NTSetting)
+var tableBorder = input.bool(true       , title="Border Color"      , group="Impact News Table Settings", inline="4")
+var headTextC   = input.color(#000000   , title="Table Header Color" , group="Impact News Table Settings", inline="2")
+var headBgC     = input.color(color.rgb(57, 207, 37), title="" , group="Impact News Table Settings", inline="2", tooltip=tableHeadCTT)
+var rowTextCP   = input.color(#787b86   , title="Table News Color   ", group="Impact News Table Settings", inline="3")
+var rowTextCF   = input.color(#000000   , title=""            , group="Impact News Table Settings", inline="3")
+var rowBgC      = input.color(#ffffff   , title=""            , group="Impact News Table Settings", inline="3", tooltip=tableRowCTT)
+var borderColor = input.color(#000000   , title=""            , group="Impact News Table Settings", inline="4")
+var borderAuto  = true
+
+var tableX      = input.string("Right"    , title=""            , group="Impact News Table Location", inline="5", options=["Left","Center","Right"])
+var tableY      = input.string("Bottom"   , title=""            , group="Impact News Table Location", inline="5", options=["Top","Middle","Bottom"])
+var sizeT       = input.string("Small"    , title=""            , group="Impact News Table Location", inline="5", options=["Tiny","Small","Normal","Large","Huge"], tooltip=sizeTTT)
+
+// Process User Input
+var locT            = ffUtil.boxLoc(tableX,tableY)
+var impact_filter   = ffUtil.impFilter(holiday,low_impact,med_impact,high_impact)
+var currency_filter = ffUtil.curFilter(AUTO,AUD,CAD,CHF,CNY,EUR,GBP,JPY,NZD,USD)
+onChartT           := timeframe.period=="D" and onChartT=="Today" ? "This Week" : onChartT
+tableType          := timeframe.period=="D" ? "This Week" : tableType
+//#endregion
+
+//#region[Import, Decode, Save]
+var currWeek = array.new<ffUtil.News>()
+var nextWeek = array.new<ffUtil.News>()
+var currDay  = array.new<ffUtil.News>()
+
+[slot1,slot2,slot3,slot4,slot5,slot6,slot7,slot8,slot9] = requestData()
+
+if timeframe.change("W")
+    nextWeek := ffUtil.bubbleSort_News(nextWeek)
+    nextWeek := ffUtil.adjustTimezone(nextWeek, timezone_h, timezone_m)
+    if todType=="AM/PM"
+        nextWeek := ffUtil.NewsAMPM_TOD(nextWeek)
+    currWeek := nextWeek.copy()
+    currWeek := ffUtil.weekNews(currWeek,currency_filter,impact_filter)
+    nextWeek.clear()
+
+if newDay
+    currDay.clear()
+    currDay := ffUtil.todayNews(currWeek,currDay,mdnCheck)
+
+nextWeek.processData(slot1,slot2,slot3,slot4,slot5,slot6,slot7,slot8,slot9)
+//#endregion
+
+//------------------------------
+// FOOTER / WATERMARK WIPE
+//------------------------------
+wipeFooter(tbl, int listSize, string _sizeT, color bg) =>
+    int maxItems =
+         _sizeT == "Tiny"   ? 46 :
+         _sizeT == "Small"  ? 38 :
+         _sizeT == "Normal" ? 28 :
+         _sizeT == "Large"  ? 20 :
+                              11
+    int shown = math.min(listSize, maxItems)
+    int footerRow = shown + 1
+
+    table.cell(tbl, 0, footerRow, "", bgcolor=bg, text_color=bg)
+    table.cell(tbl, 1, footerRow, "", bgcolor=bg, text_color=bg)
+    table.cell(tbl, 2, footerRow, "", bgcolor=bg, text_color=bg)
+    table.cell(tbl, 3, footerRow, "", bgcolor=bg, text_color=bg)
+
+//#region[Table & Drawings]
+var table_BC = tableBorder ? (borderAuto ? chart.fg_color : borderColor) : na
+var _table = ffUtil.newTable(locT,table_BC)
+
+if currWeek.size()>0
+    if showTable
+        if tableType=="Today"
+            if newDay
+                _table := ffUtil.FF_Table(currDay,locT,sizeT,headTextC,headBgC,rowTextCF,rowBgC,table_BC)
+            ffUtil.timeline(currDay,_table,rowTextCP, timezone_h, timezone_m, true)
+            wipeFooter(_table, currDay.size(), sizeT, rowBgC)
+        else
+            if timeframe.change("W")
+                _table := ffUtil.FF_Table(currWeek,locT,sizeT,headTextC,headBgC,rowTextCF,rowBgC,table_BC)
+            ffUtil.timeline(currWeek,_table,rowTextCP, timezone_h, timezone_m)
+            wipeFooter(_table, currWeek.size(), sizeT, rowBgC)
+    else
+        _table.delete()
+else
+    _table.delete()
+
+if showLines
+    if onChartT!="Today" and timeframe.change("W")
+        ffUtil.FF_OnChartLine(currWeek,lineT,lineS)
+    else if onChartT=="Today" and newDay
+        ffUtil.FF_OnChartLine(currDay,lineT,lineS)
+
+if showLabels
+    ffUtil.FF_OnChartLabel(currWeek,labelY,labelS,lblOutLn)
+
+ffUtil.historical(onChartLB,onChartT=="Today",onChartT=="This Week",lineTime)
+//#endregion
+
+//#region[Daily Chart Buffer]
+if timeframe.period=="D" and timeframe.change("W")
+    nextWeek.processData(slot1,slot2,slot3,slot4,slot5,slot6,slot7,slot8,slot9)
+//#endregion
+
+//==============================================================================
+// FUNCTIONS (Sessions)
+//==============================================================================
+n = bar_index
+
+// Simple string repeater (works everywhere)
+repeat_str(string s, int count) =>
+    string out = ""
+    for i = 0 to count - 1
+        out += s
+    out
+
+get_range(session, session_name, session_css) =>
+    // === BOX TEXT POSITION (optional padding) ===
+    // xPad = spaces before text (pushes text right)
+    // yPad = newlines before text (pushes text down)
+    int xPad = -4
+    int yPad = 0
+
+    var float max = high
+    var float min = low
+    var box   bx  = na
+
+    if session > session[1]
+        max := high
+        min := low
+
+        // One-line box.new to avoid line-continuation issues
+        bx := box.new(bar_index, max, bar_index, min,
+             bgcolor=color.new(session_css, bg_transp),
+             border_color=show_outline ? session_css : na,
+             border_style=line.style_dotted)
+
+        // Session "label" uses BOX TEXT (not label objects)
+        if show_txt
+            string padX = xPad > 0 ? repeat_str(" ",  xPad) : ""
+            string padY = yPad > 0 ? repeat_str("\n", yPad) : ""
+            box.set_text(bx, padY + padX + session_name)
+            box.set_text_color(bx, session_css)
+            box.set_text_size(bx, size.normal)
+            box.set_text_halign(bx, text.align_left)
+            box.set_text_valign(bx, text.align_top)
+
+    if session and session == session[1]
+        max := math.max(high, max)
+        min := math.min(low, min)
+        box.set_top(bx, max)
+        box.set_rightbottom(bx, bar_index, min)
+
+        // keep text updated (optional)
+        if show_txt and not na(bx)
+            string padX = xPad > 0 ? repeat_str(" ",  xPad) : ""
+            string padY = yPad > 0 ? repeat_str("\n", yPad) : ""
+            box.set_text(bx, padY + padX + session_name)
+
+    [session ? na : max, session ? na : min]
+
+//==============================================================================
+// FUNCTIONS (ATR)
+//==============================================================================
+ma_function(source, length) =>
+    float result = na
+    if atrsmoothing == "RMA"
+        result := ta.rma(source, length)
+    else if atrsmoothing == "SMA"
+        result := ta.sma(source, length)
+    else if atrsmoothing == "EMA"
+        result := ta.ema(source, length)
+    else if atrsmoothing == "WMA"
+        result := ta.wma(source, length)
+    result
+
+normalize_for_display(val) =>
+    marketType == "Forex Pairs" ? (val / syminfo.mintick / 10.0) : val
+
+//==============================================================================
+// SESSIONS
+//==============================================================================
+tf = timeframe.period
+var string tz = use_exchange ? syminfo.timezone : str.format("UTC{0}{1}", tz_incr >= 0 ? "+" : "-", math.abs(tz_incr))
+
+is_sesa = math.sign(nz(time(tf, sesa_ses, tz)))
+is_sesb = math.sign(nz(time(tf, sesb_ses, tz)))
+is_sesc = math.sign(nz(time(tf, sesc_ses, tz)))
+
+if show_sesa
+    get_range(is_sesa, sesa_txt, sesa_css)
+
+if show_sesb
+    get_range(is_sesb, sesb_txt, sesb_css)
+
+if show_sesc
+    get_range(is_sesc, sesc_txt, sesc_css)
+
+//==============================================================================
+// ATR (Values in status line OFF via display.none)
+//==============================================================================
+_atr_tf = request.security(syminfo.tickerid, tf_input, ma_function(ta.tr(true), atrlength))
+
+atr_raw      = _atr_tf
+atr_raw_prev = _atr_tf[1]
+
+atr_disp      = normalize_for_display(_atr_tf)
+atr_disp_prev = normalize_for_display(_atr_tf[1])
+
+atrVal_disp =
+     normATR and not prevATR     ? atr_disp      :
+     normATR and prevATR         ? atr_disp_prev :
+     not normATR and not prevATR ? atr_raw       :
+     not normATR and prevATR     ? atr_raw_prev  : na
+
+atrVal_price = not prevATR ? atr_raw : atr_raw_prev
+
+plot(atrVal_disp, title="ATR Value (Display Units)", color=color.orange, display=display.none, editable=false)
+
+units = marketType == "Forex Pairs" ? " Pips" : " Pts"
+cATR = normATR ? str.tostring(atr_disp, "#") : str.tostring(atr_raw, "#")
+
+tpLevel = close + (atrVal_price * tpMultiplier)
+slLevel = close - (atrVal_price * slMultiplier)
+
+//==============================================================================
+// EMA 13 (NO price scale label, NO status line value)
+//==============================================================================
+ema13 = ta.ema(close, emaLength)
+plot(ema13, title="EMA 13", color=emaColor, linewidth=emaWidth, trackprice=false, display=display.all - display.status_line - display.price_scale)
+
+//==============================================================================
+// TABLE (ATR)
+//==============================================================================
+labelText = "ATR\nCurrent: " + cATR + units
+var table atrTable = table.new(position=position.top_right, columns=1, rows=3, border_width=1)
+
+rowIndex = positionOption == "Top Right" ? 0 : positionOption == "Middle Right" ? 1 : 2
+
+for i = 0 to 2
+    table.cell(atrTable, 0, i, "", text_color=color.white, bgcolor=color.new(color.black, 100))
+
+text_size_mapping = size.normal
+if textSizeOption == "Tiny"
+    text_size_mapping := size.tiny
+else if textSizeOption == "Small"
+    text_size_mapping := size.small
+else if textSizeOption == "Normal"
+    text_size_mapping := size.normal
+else if textSizeOption == "Large"
+    text_size_mapping := size.large
+else if textSizeOption == "Huge"
+    text_size_mapping := size.huge
+
+table.cell(atrTable, 0, rowIndex, text=labelText, text_color=textColor, bgcolor=tableBackgroundColor, text_size=text_size_mapping)
+
+//==============================================================================
+// TABLE (Checklist) 
+//==============================================================================
+if show_checklist and barstate.islast
+    table.cell(checklist, 0, 0, "             Zen Lab Checklist ", bgcolor=chk_header_bg, text_color=chk_header_text, text_size=tSize_chk)
+    table.cell(checklist, 1, 0, "", bgcolor=chk_header_bg)
+
+    table.cell(checklist, 0, 1, label1, text_color=chk_textcolor, bgcolor=chk_bgcolor, text_size=tSize_chk)
+    table.cell(checklist, 1, 1, check1 ? checkmark : empty, text_color=check1 ? color.green : color.red, bgcolor=chk_bgcolor, text_size=tSize_chk)
+
+    table.cell(checklist, 0, 2, label2, text_color=chk_textcolor, bgcolor=chk_bgcolor, text_size=tSize_chk)
+    table.cell(checklist, 1, 2, check2 ? checkmark : empty, text_color=check2 ? color.green : color.red, bgcolor=chk_bgcolor, text_size=tSize_chk)
+
+    table.cell(checklist, 0, 3, label3, text_color=chk_textcolor, bgcolor=chk_bgcolor, text_size=tSize_chk)
+    table.cell(checklist, 1, 3, check3 ? checkmark : empty, text_color=check3 ? color.green : color.red, bgcolor=chk_bgcolor, text_size=tSize_chk)
+
+    table.cell(checklist, 0, 4, label4, text_color=chk_textcolor, bgcolor=chk_bgcolor, text_size=tSize_chk)
+    table.cell(checklist, 1, 4, check4 ? checkmark : empty, text_color=check4 ? color.green : color.red, bgcolor=chk_bgcolor, text_size=tSize_chk)
+
+    table.cell(checklist, 0, 5, label5, text_color=chk_textcolor, bgcolor=chk_bgcolor, text_size=tSize_chk)
+    table.cell(checklist, 1, 5, check5 ? checkmark : empty, text_color=check5 ? color.green : color.red, bgcolor=chk_bgcolor, text_size=tSize_chk)
+
+    table.cell(checklist, 0, 6, label6, text_color=chk_textcolor, bgcolor=chk_bgcolor, text_size=tSize_chk)
+    table.cell(checklist, 1, 6, check6 ? checkmark : empty, text_color=check5 ? color.green : color.red, bgcolor=chk_bgcolor, text_size=tSize_chk)
+
+
